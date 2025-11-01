@@ -32,47 +32,63 @@ const Dashboard: React.FC = () => {
     .filter(log => new Date(log.date) >= oneWeekAgo)
     .reduce((sum, log) => sum + log.totalMinutes, 0);
 
-  // Calculate daily goal progress
-  const dailyGoalProgress = Math.min((todayMinutes / studyGoal.dailyMinutes) * 100, 100);
-  const dailyGoalReached = todayMinutes >= studyGoal.dailyMinutes;
+  // Safe access to studyGoal with fallback
+  const safeStudyGoal = studyGoal || { dailyMinutes: 120, weeklyMinutes: 600 };
+
+  // Calculate daily goal progress with error handling
+  const dailyGoalProgress = safeStudyGoal.dailyMinutes > 0 
+    ? Math.min((todayMinutes / safeStudyGoal.dailyMinutes) * 100, 100) 
+    : 0;
+  const dailyGoalReached = todayMinutes >= safeStudyGoal.dailyMinutes;
 
   // Calculate goal streak (consecutive days hitting daily goal)
   const calculateGoalStreak = () => {
-    let streak = 0;
-    const checkDate = new Date();
-    
-    while (true) {
-      const dateStr = checkDate.toISOString().split('T')[0];
-      const log = dailyLogs.find(l => l.date === dateStr);
+    try {
+      let streak = 0;
+      const checkDate = new Date();
+      let maxIterations = 365; // Safety limit
       
-      if (log && log.totalMinutes >= studyGoal.dailyMinutes) {
-        streak++;
-        checkDate.setDate(checkDate.getDate() - 1);
-      } else if (dateStr === today && todayMinutes >= studyGoal.dailyMinutes) {
-        // Today counts even if log isn't saved yet
-        streak++;
-        checkDate.setDate(checkDate.getDate() - 1);
-      } else {
-        break;
+      while (maxIterations > 0) {
+        const dateStr = checkDate.toISOString().split('T')[0];
+        const log = dailyLogs.find(l => l.date === dateStr);
+        
+        if (log && log.totalMinutes >= safeStudyGoal.dailyMinutes) {
+          streak++;
+          checkDate.setDate(checkDate.getDate() - 1);
+        } else if (dateStr === today && todayMinutes >= safeStudyGoal.dailyMinutes) {
+          // Today counts even if log isn't saved yet
+          streak++;
+          checkDate.setDate(checkDate.getDate() - 1);
+        } else {
+          break;
+        }
+        maxIterations--;
       }
+      
+      return streak;
+    } catch (error) {
+      console.error('Error calculating goal streak:', error);
+      return 0;
     }
-    
-    return streak;
   };
 
   const goalStreak = calculateGoalStreak();
 
   // Show celebration when goal is reached (only once per day)
   useEffect(() => {
-    if (dailyGoalReached && !hasShownGoalCelebration) {
-      const celebrationShownKey = `goal-celebration-${today}`;
-      const alreadyShown = sessionStorage.getItem(celebrationShownKey);
-      
-      if (!alreadyShown) {
-        setShowCelebration(true);
-        sessionStorage.setItem(celebrationShownKey, 'true');
-        setHasShownGoalCelebration(true);
+    try {
+      if (dailyGoalReached && !hasShownGoalCelebration) {
+        const celebrationShownKey = `goal-celebration-${today}`;
+        const alreadyShown = sessionStorage.getItem(celebrationShownKey);
+        
+        if (!alreadyShown) {
+          setShowCelebration(true);
+          sessionStorage.setItem(celebrationShownKey, 'true');
+          setHasShownGoalCelebration(true);
+        }
       }
+    } catch (error) {
+      console.error('Error showing celebration:', error);
     }
   }, [dailyGoalReached, hasShownGoalCelebration, today]);
 
@@ -233,7 +249,7 @@ const Dashboard: React.FC = () => {
               {formatMinutes(todayMinutes)}
             </div>
             <div className="text-slate-500" style={{ fontSize: '14px' }}>
-              / {formatMinutes(studyGoal.dailyMinutes)}
+              / {formatMinutes(safeStudyGoal.dailyMinutes)}
             </div>
           </div>
           <div className="progress-bar h-3" style={{ marginBottom: '8px' }}>

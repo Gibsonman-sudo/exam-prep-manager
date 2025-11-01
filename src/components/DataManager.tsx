@@ -10,26 +10,34 @@ const DataManager: React.FC<Props> = ({ onClose }) => {
   const { exportData, importData, clearData, clearCompletedSubjects, studyGoal, updateStudyGoal } = useApp();
   const { showToast } = useToast();
   
-  const [dailyGoalHours, setDailyGoalHours] = useState(Math.floor(studyGoal.dailyMinutes / 60));
-  const [dailyGoalMinutes, setDailyGoalMinutes] = useState(studyGoal.dailyMinutes % 60);
-  const [weeklyGoalHours, setWeeklyGoalHours] = useState(Math.floor(studyGoal.weeklyMinutes / 60));
+  // Safe access to studyGoal with fallback
+  const safeStudyGoal = studyGoal || { dailyMinutes: 120, weeklyMinutes: 600 };
+  
+  const [dailyGoalHours, setDailyGoalHours] = useState(Math.floor(safeStudyGoal.dailyMinutes / 60));
+  const [dailyGoalMinutes, setDailyGoalMinutes] = useState(safeStudyGoal.dailyMinutes % 60);
+  const [weeklyGoalHours, setWeeklyGoalHours] = useState(Math.floor(safeStudyGoal.weeklyMinutes / 60));
 
   const handleUpdateGoal = () => {
-    const newDailyMinutes = dailyGoalHours * 60 + dailyGoalMinutes;
-    const newWeeklyMinutes = weeklyGoalHours * 60;
-    
-    if (newDailyMinutes <= 0) {
-      showToast('Daily goal must be at least 1 minute', 'error');
-      return;
+    try {
+      const newDailyMinutes = dailyGoalHours * 60 + dailyGoalMinutes;
+      const newWeeklyMinutes = weeklyGoalHours * 60;
+      
+      if (newDailyMinutes <= 0) {
+        showToast('Daily goal must be at least 1 minute', 'error');
+        return;
+      }
+      
+      if (newWeeklyMinutes <= 0) {
+        showToast('Weekly goal must be at least 1 hour', 'error');
+        return;
+      }
+      
+      updateStudyGoal(newDailyMinutes, newWeeklyMinutes);
+      showToast('Study goals updated! 🎯', 'success');
+    } catch (error) {
+      console.error('Error updating study goal:', error);
+      showToast('Failed to update goals. Please try again.', 'error');
     }
-    
-    if (newWeeklyMinutes <= 0) {
-      showToast('Weekly goal must be at least 1 hour', 'error');
-      return;
-    }
-    
-    updateStudyGoal(newDailyMinutes, newWeeklyMinutes);
-    showToast('Study goals updated! 🎯', 'success');
   };
 
   const handleExport = () => {
