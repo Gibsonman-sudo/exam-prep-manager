@@ -16,7 +16,7 @@ const StudyTimerModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [mode, setMode] = useState<TimerMode>('timer');
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [selectedChapterId, setSelectedChapterId] = useState('');
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [displayTime, setDisplayTime] = useState('00:00:00');
   const [isRunning, setIsRunning] = useState(false);
   const [sessionNotes, setSessionNotes] = useState('');
   const intervalRef = useRef<number | null>(null);
@@ -24,26 +24,37 @@ const StudyTimerModal: React.FC<Props> = ({ isOpen, onClose }) => {
   // Manual entry state
   const [manualSubjectId, setManualSubjectId] = useState('');
   const [manualChapterId, setManualChapterId] = useState('');
-  const [manualDuration, setManualDuration] = useState({ hours: 0, minutes: 0 });
+  const [manualHours, setManualHours] = useState('0');
+  const [manualMinutes, setManualMinutes] = useState('0');
   const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
   const [manualNotes, setManualNotes] = useState('');
+
+  // Calculate elapsed time from currentSession.startTime (ACCURATE)
+  const calculateElapsedSeconds = (): number => {
+    if (!currentSession) return 0;
+    const startTime = new Date(currentSession.startTime).getTime();
+    const now = Date.now();
+    return Math.floor((now - startTime) / 1000);
+  };
 
   // Initialize from current session
   useEffect(() => {
     if (currentSession) {
       setSelectedSubjectId(currentSession.subjectId);
       setSelectedChapterId(currentSession.chapterId || '');
-      const elapsed = Math.floor((Date.now() - new Date(currentSession.startTime).getTime()) / 1000);
-      setElapsedSeconds(elapsed);
       setIsRunning(true);
+      // Calculate display time immediately
+      const elapsed = calculateElapsedSeconds();
+      setDisplayTime(formatTime(elapsed));
     }
   }, [currentSession]);
 
-  // Timer interval
+  // Timer interval - updates display every second using actual elapsed time
   useEffect(() => {
-    if (isRunning) {
+    if (isRunning && currentSession) {
       intervalRef.current = setInterval(() => {
-        setElapsedSeconds(prev => prev + 1);
+        const elapsed = calculateElapsedSeconds();
+        setDisplayTime(formatTime(elapsed));
       }, 1000);
     } else {
       if (intervalRef.current) {
@@ -57,19 +68,22 @@ const StudyTimerModal: React.FC<Props> = ({ isOpen, onClose }) => {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isRunning]);
+  }, [isRunning, currentSession]);
 
   // Pomodoro notification (25 minutes)
   useEffect(() => {
-    if (elapsedSeconds === 1500 && isRunning) { // 25 minutes
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('🍅 Pomodoro Complete!', {
-          body: 'You\'ve studied for 25 minutes. Time for a break!',
-          icon: '/favicon.ico'
-        });
+    if (isRunning && currentSession) {
+      const elapsed = calculateElapsedSeconds();
+      if (elapsed >= 1500 && elapsed < 1502) { // 25 minutes (with 2 second window)
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('🍅 Pomodoro Complete!', {
+            body: 'You\'ve studied for 25 minutes. Time for a break!',
+            icon: '/favicon.ico'
+          });
+        }
       }
     }
-  }, [elapsedSeconds, isRunning]);
+  }, [isRunning, currentSession, displayTime]); // Recheck every display update
 
   // Request notification permission on mount
   useEffect(() => {
@@ -106,7 +120,7 @@ const StudyTimerModal: React.FC<Props> = ({ isOpen, onClose }) => {
       stopStudySession(sessionNotes);
     }
     setIsRunning(false);
-    setElapsedSeconds(0);
+    setDisplayTime('00:00:00');
     setSessionNotes('');
     onClose();
   };
@@ -140,9 +154,28 @@ const StudyTimerModal: React.FC<Props> = ({ isOpen, onClose }) => {
       return;
     }
 
-    const totalMinutes = manualDuration.hours * 60 + manualDuration.minutes;
+    // Parse and validate input with proper radix
+    const hours = parseInt(manualHours, 10);
+    const minutes = parseInt(manualMinutes, 10);
+
+    // Validation
+    if (isNaN(hours) || isNaN(minutes) || hours < 0 || minutes < 0 || minutes >= 60) {
+      alert('Please enter valid hours (0-23) and minutes (0-59)');
+      return;
+    }
+
+    const totalMinutes = hours * 60 + minutes;
+    
+    console.log('Manual Entry Debug:', { 
+      hoursInput: manualHours, 
+      minutesInput: manualMinutes, 
+      hoursParsed: hours, 
+      minutesParsed: minutes, 
+      totalMinutes 
+    });
+
     if (totalMinutes <= 0) {
-      alert('Please enter a valid duration');
+      alert('Please enter a valid duration (at least 1 minute)');
       return;
     }
 
@@ -159,10 +192,13 @@ const StudyTimerModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
     addManualSession(session);
     
+    console.log('Session Saved:', { totalMinutes, session });
+    
     // Reset form
     setManualSubjectId('');
     setManualChapterId('');
-    setManualDuration({ hours: 0, minutes: 0 });
+    setManualHours('0');
+    setManualMinutes('0');
     setManualDate(new Date().toISOString().split('T')[0]);
     setManualNotes('');
     setMode('timer');
@@ -256,7 +292,7 @@ const StudyTimerModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 className={`text-6xl font-mono font-bold text-[#2d9ca8] ${isRunning ? 'animate-pulse' : ''}`}
                 style={{ letterSpacing: '0.05em' }}
               >
-                {formatTime(elapsedSeconds)}
+                {displayTime}
               </div>
               {selectedSubject && (
                 <div className="mt-3 text-sm text-[#a0a0a0]">
@@ -436,9 +472,26 @@ const StudyTimerModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   type="number"
                   min="0"
                   max="23"
-                  value={manualDuration.hours}
-                  onChange={(e) => setManualDuration(prev => ({ ...prev, hours: parseInt(e.target.value) || 0 }))}
+                  step="1"
+                  value={manualHours}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    // Allow empty string for user typing
+                    if (value === '' || /^\d+$/.test(value)) {
+                      const num = parseInt(value, 10);
+                      if (value === '' || (num >= 0 && num <= 23)) {
+                        setManualHours(value);
+                      }
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // Set to 0 if empty on blur
+                    if (e.target.value === '') {
+                      setManualHours('0');
+                    }
+                  }}
                   className="input"
+                  placeholder="0"
                 />
               </div>
               <div>
@@ -447,9 +500,26 @@ const StudyTimerModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   type="number"
                   min="0"
                   max="59"
-                  value={manualDuration.minutes}
-                  onChange={(e) => setManualDuration(prev => ({ ...prev, minutes: parseInt(e.target.value) || 0 }))}
+                  step="1"
+                  value={manualMinutes}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    // Allow empty string for user typing
+                    if (value === '' || /^\d+$/.test(value)) {
+                      const num = parseInt(value, 10);
+                      if (value === '' || (num >= 0 && num <= 59)) {
+                        setManualMinutes(value);
+                      }
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // Set to 0 if empty on blur
+                    if (e.target.value === '') {
+                      setManualMinutes('0');
+                    }
+                  }}
                   className="input"
+                  placeholder="0"
                 />
               </div>
             </div>
